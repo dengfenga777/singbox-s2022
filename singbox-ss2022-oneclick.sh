@@ -2,6 +2,7 @@
 # singbox-ss2022-oneclick.sh (CLI interactive, force-interactive via /dev/tty)
 # 一键安装/更新 sing-box（仅 Shadowsocks 2022 入站），纯命令行交互（无弹窗）。
 # 亮点：即使通过 `curl | sudo bash` 非交互管道运行，也会使用 /dev/tty 进行交互，确保能选择端口和方法。
+# 修正：无人值守模式下生成密码的语法已修复 -> PASSWORD="$(gen_password "$METHOD")"
 
 set -euo pipefail
 export LC_ALL=C
