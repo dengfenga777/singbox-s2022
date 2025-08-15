@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# singbox-ss2022-oneclick.sh (CLI interactive, latest - no non-interactive guard)
+# singbox-ss2022-oneclick.sh (CLI interactive, force-interactive via /dev/tty)
 # 一键安装/更新 sing-box（仅 Shadowsocks 2022 入站），纯命令行交互（无弹窗）。
-# 变更：移除“非交互环境（curl | bash）拒绝运行”的限制，允许直接管道运行交互；仍保留 NONINTERACTIVE=1 模式。
-# 附带：生成 ss:// 与 Surge 配置片段（保存到 /etc/sing-box/surge-ss2022.conf）。
+# 亮点：即使通过 `curl | sudo bash` 非交互管道运行，也会使用 /dev/tty 进行交互，确保能选择端口和方法。
 
 set -euo pipefail
 export LC_ALL=C
@@ -27,6 +26,21 @@ need_root() {
     err "请使用 root 运行（sudo -i）"
     exit 1
   fi
+}
+
+# 所有交互都使用 /dev/tty：即便 stdin 是管道，也能正常读写
+say_tty() { printf "%s" "$1" > /dev/tty; }
+echo_tty() { echo -e "$1" > /dev/tty; }
+read_tty() { # $1 prompt -> echo user input
+  local v
+  printf "%s" "$1" > /dev/tty
+  IFS= read -r v < /dev/tty || true
+  printf "%s" "$v"
+}
+read_tty_default() { # $1 prompt, $2 default
+  local v; printf "%s [%s]: " "$1" "$2" > /dev/tty
+  IFS= read -r v < /dev/tty || true
+  if [[ -z "$v" ]]; then printf "%s" "$2"; else printf "%s" "$v"; fi
 }
 
 detect_pkg() {
@@ -92,20 +106,12 @@ gen_password() {
   esac
 }
 
-read_with_default() {
-  local v
-  read -r -p "$1 [$2]: " v || true
-  echo "${v:-$2}"
-}
-
 choose_method_cli() {
-  { echo "请选择 Shadowsocks 2022 方法:"
-    echo "  1) 2022-blake3-aes-256-gcm   (默认)"
-    echo "  2) 2022-blake3-chacha20-poly1305"
-    echo "  3) 2022-blake3-aes-128-gcm"
-  } >&2
-  local n
-  read -r -p "输入序号 [1]: " n >&2 || true
+  echo_tty "请选择 Shadowsocks 2022 方法:\n"
+  echo_tty "  1) 2022-blake3-aes-256-gcm   (默认)\n"
+  echo_tty "  2) 2022-blake3-chacha20-poly1305\n"
+  echo_tty "  3) 2022-blake3-aes-128-gcm\n"
+  local n; n="$(read_tty '输入序号 [1]: ')" || true
   case "${n:-1}" in
     1) echo "2022-blake3-aes-256-gcm" ;;
     2) echo "2022-blake3-chacha20-poly1305" ;;
@@ -115,42 +121,42 @@ choose_method_cli() {
 }
 
 collect_inputs() {
-  echo "=== SS2022 配置 ==="
+  echo_tty "=== SS2022 配置 ===\n"
   unset METHOD
   METHOD="$(choose_method_cli)"
 
   PORT="${PORT:-}"
   while [[ -z "${PORT:-}" ]]; do
-    PORT="$(read_with_default '设置端口(1-65535)' "$DEFAULT_PORT")"
+    PORT="$(read_tty_default '设置端口(1-65535)' "$DEFAULT_PORT")"
     if ! validate_port "$PORT"; then
-      echo "无效端口：$PORT"
+      echo_tty "无效端口：$PORT\n"
       PORT=""
     fi
   done
 
   LISTEN_ADDR="${LISTEN_ADDR:-}"
-  LISTEN_ADDR="$(read_with_default '监听地址(:: / 0.0.0.0 / 127.0.0.1)' "$DEFAULT_LISTEN")"
+  LISTEN_ADDR="$(read_tty_default '监听地址(:: / 0.0.0.0 / 127.0.0.1)' "$DEFAULT_LISTEN")"
 
   if [[ -z "${PASSWORD:-}" ]]; then
-    read -r -p "是否手动输入 base64 密钥？(y/N): " a || true
-    if [[ "${a,,}" =~ ^y(es)?$ ]]; then
+    local yn; yn="$(read_tty '是否手动输入 base64 密钥？(y/N): ')" || true
+    if [[ "${yn,,}" =~ ^y(es)?$ ]]; then
       while true; do
-        read -r -p "请输入 base64 密钥: " PASSWORD || true
+        PASSWORD="$(read_tty '请输入 base64 密钥: ')" || true
         [[ -n "${PASSWORD// /}" ]] && break
-        echo "密钥不能为空"
+        echo_tty "密钥不能为空\n"
       done
     else
       PASSWORD="$(gen_password "$METHOD")"
     fi
   fi
 
-  echo "---------------------------"
-  echo "方法 : $METHOD"
-  echo "端口 : $PORT"
-  echo "监听 : $LISTEN_ADDR"
-  echo "密钥 : $PASSWORD (base64)"
-  echo "---------------------------"
-  read -r -p "确认开始安装？(Y/n): " okgo || true
+  echo_tty "---------------------------\n"
+  echo_tty "方法 : $METHOD\n"
+  echo_tty "端口 : $PORT\n"
+  echo_tty "监听 : $LISTEN_ADDR\n"
+  echo_tty "密钥 : $PASSWORD (base64)\n"
+  echo_tty "---------------------------\n"
+  local okgo; okgo="$(read_tty '确认开始安装？(Y/n): ')" || true
   if [[ "${okgo,,}" == "n" ]]; then
     echo "已取消"
     exit 0
@@ -241,12 +247,11 @@ uninstall() {
 }
 
 main_menu() {
-  echo "====== 选择操作 ======"
-  echo "  1) 安装/更新 sing-box (SS2022)"
-  echo "  2) 卸载 sing-box 与配置"
-  echo "  3) 退出"
-  local n
-  read -r -p "输入序号 [1]: " n || true
+  echo_tty "====== 选择操作 ======\n"
+  echo_tty "  1) 安装/更新 sing-box (SS2022)\n"
+  echo_tty "  2) 卸载 sing-box 与配置\n"
+  echo_tty "  3) 退出\n"
+  local n; n="$(read_tty '输入序号 [1]: ')" || true
   case "${n:-1}" in
     1) ACTION="install" ;;
     2) ACTION="uninstall" ;;
@@ -286,7 +291,7 @@ if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
   : "${PORT:?需要 PORT}"
   : "${METHOD:?需要 METHOD}"
   : "${LISTEN_ADDR:=::}"
-  if [[ -z "${PASSWORD:-}" ]]; then PASSWORD="$(gen_password "$METHOD")"; fi
+  if [[ -z "${PASSWORD:-}" ]]; then PASSWORD="$(gen_password("$METHOD") )"; fi
   fetch_latest_singbox; install_singbox; write_config; write_service; print_summary; ok "完成 ✅"; exit 0
 fi
 
