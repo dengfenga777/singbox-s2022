@@ -17,7 +17,4 @@ bash <(curl -fsSL https://raw.githubusercontent.com/dengfenga777/singbox-s2022/m
 ```bash
 ss2022-traffic
 ```
-
-[Uploading README.md…]()
-# sing-box 多协议一键脚本（无 SOCKS/HTTP）
-支持 Shadowsocks AEAD / SS 2022 / VMess / VLESS Plain / Trojan / Hysteria2 / TUIC（按需开关）
+  
