@@ -7,8 +7,8 @@
 适配 Debian/Ubuntu/CentOS/Alma/Rocky，x86_64 / aarch64。
 
 ## 一键安装
-```bash
-bash <(curl -fsSL https://github.com/dengfenga777/singbox-s2022/blob/main/singbox-ss2022-oneclick.sh)
+```curl
+curl -fsSL "https://raw.githubusercontent.com/dengfenga777/singbox-s2022/main/singbox-ss2022-oneclick.sh" | sudo bash
 ```
 
 > 将 `USER/REPO` 替换为你的 GitHub 用户名与仓库名。
