@@ -291,7 +291,7 @@ if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
   : "${PORT:?需要 PORT}"
   : "${METHOD:?需要 METHOD}"
   : "${LISTEN_ADDR:=::}"
-  if [[ -z "${PASSWORD:-}" ]]; then PASSWORD="$(gen_password("$METHOD") )"; fi
+  if [[ -z "${PASSWORD:-}" ]]; then PASSWORD="$(gen_password "$METHOD")"; fi
   fetch_latest_singbox; install_singbox; write_config; write_service; print_summary; ok "完成 ✅"; exit 0
 fi
 
