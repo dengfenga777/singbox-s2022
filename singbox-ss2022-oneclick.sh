@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# singbox-ss2022-oneclick.sh (interactive)
-# 功能：一键安装/更新 sing-box，仅启用 Shadowsocks 2022 入站；用 whiptail 弹窗交互选择端口/方法/密钥/监听地址
-# 适配：Debian/Ubuntu/CentOS/Alma/Rocky；x86_64 / aarch64；需要 TTY（SSH 终端）
-# 作者提示：如未安装 whiptail，将自动尝试安装（fallback: dialog）
+# singbox-ss2022-oneclick.sh (CLI interactive, no popups)
+# 功能：一键安装/更新 sing-box，仅启用 Shadowsocks 2022 入站；使用纯命令行交互（数字选择/输入）
+# 适配：Debian/Ubuntu/CentOS/Alma/Rocky；x86_64 / aarch64
+# 备注：无需 whiptail/dialog；支持卸载；生成 ss:// 与 Surge 配置；支持环境变量直传以实现无人值守
 
 set -euo pipefail
 
@@ -11,9 +11,9 @@ SB_BIN="/usr/local/bin/sing-box"
 SB_SERVICE="/etc/systemd/system/sing-box.service"
 LOG_DIR="/var/log/sing-box"
 
-default_port=30001
-default_method="2022-blake3-aes-256-gcm"
-default_listen="::"
+DEFAULT_PORT="${DEFAULT_PORT:-30001}"
+DEFAULT_METHOD="${DEFAULT_METHOD:-2022-blake3-aes-256-gcm}"
+DEFAULT_LISTEN="${DEFAULT_LISTEN:-::}"
 
 color() { echo -e "\033[$1m$2\033[0m"; }
 ok() { color "32" "✓ $1"; }
@@ -27,99 +27,11 @@ need_root() {
   fi
 }
 
-need_tty() {
-  if [[ ! -t 1 ]]; then
-    err "需要在交互式终端中运行（TTY）。请直接在 SSH 里执行本脚本。"
-    exit 1
-  fi
-}
-
 detect_pkg() {
   if command -v apt-get >/dev/null 2>&1; then PKG=apt; INSTALL="apt-get update && apt-get install -y"
   elif command -v dnf >/dev/null 2>&1; then PKG=dnf; INSTALL="dnf install -y"
   elif command -v yum >/dev/null 2>&1; then PKG=yum; INSTALL="yum install -y"
   else PKG=unknown; fi
-}
-
-install_ui() {
-  if command -v whiptail >/dev/null 2>&1; then UI="whiptail"; return; fi
-  if command -v dialog >/dev/null 2>&1;  then UI="dialog"; return; fi
-  if [[ "$PKG" == "unknown" ]]; then
-    warn "未检测到包管理器，无法自动安装 whiptail/dialog。将尝试以纯文本 fallback。"
-    UI=""
-    return
-  fi
-  # 优先 whiptail
-  set +e
-  eval "$INSTALL whiptail" >/dev/null 2>&1
-  if command -v whiptail >/dev/null 2>&1; then UI="whiptail"; set -e; return; fi
-  eval "$INSTALL dialog" >/dev/null 2>&1
-  if command -v dialog   >/dev/null 2>&1; then UI="dialog"; set -e; return; fi
-  set -e
-  warn "whiptail / dialog 安装失败，将使用纯文本交互。"
-  UI=""
-}
-
-ui_menu() {
-  # $1 title, $2 text, rest pairs tag item
-  if [[ "$UI" == "whiptail" ]]; then
-    whiptail --clear --title "$1" --menu "$2" 20 70 10 "${@:3}" 3>&1 1>&2 2>&3
-  elif [[ "$UI" == "dialog" ]]; then
-    dialog --clear --title "$1" --menu "$2" 20 70 10 "${@:3}" 3>&1 1>&2 2>&3
-  else
-    # text fallback: print options and read
-    echo -e "\n== $1 ==\n$2"
-    local i=3; local idx=1; local opt; declare -a tags
-    while [[ $i -le $# ]]; do
-      opt="${!i}"; i=$((i+1)); # tag
-      echo " [$idx] ${opt} - ${!i}"; i=$((i+1)); # item
-      tags+=("$opt")
-      idx=$((idx+1))
-    done
-    read -rp "选择序号: " n
-    echo "${tags[$((n-1))]}"
-  fi
-}
-
-ui_input() {
-  # $1 title, $2 text, $3 default
-  if [[ "$UI" == "whiptail" ]]; then
-    whiptail --clear --title "$1" --inputbox "$2" 10 70 "$3" 3>&1 1>&2 2>&3
-  elif [[ "$UI" == "dialog" ]]; then
-    dialog --clear --title "$1" --inputbox "$2" 10 70 "$3" 3>&1 1>&2 2>&3
-  else
-    echo -e "\n== $1 ==\n$2（默认: $3）"
-    read -rp "> " v; echo "${v:-$3}"
-  fi
-}
-
-ui_yesno() {
-  # $1 title, $2 text -> 0 yes, 1 no
-  if [[ "$UI" == "whiptail" ]]; then
-    if whiptail --clear --title "$1" --yesno "$2" 10 70; then return 0; else return 1; fi
-  elif [[ "$UI" == "dialog" ]]; then
-    if dialog --clear --title "$1" --yesno "$2" 10 70; then return 0; else return 1; fi
-  else
-    echo -e "\n== $1 ==\n$2 [y/N]"
-    read -rp "> " a; [[ "${a,,}" =~ ^y(es)?$ ]]
-  fi
-}
-
-ui_msg() {
-  # $1 title, $2 text
-  if [[ "$UI" == "whiptail" ]]; then
-    whiptail --clear --title "$1" --msgbox "$2" 12 70
-  elif [[ "$UI" == "dialog" ]]; then
-    dialog --clear --title "$1" --msgbox "$2" 12 70
-  else
-    echo -e "\n== $1 ==\n$2\n"
-  fi
-}
-
-validate_port() {
-  local p="$1"
-  [[ "$p" =~ ^[0-9]+$ ]] || return 1
-  (( p>=1 && p<=65535 ))
 }
 
 detect_arch() {
@@ -132,9 +44,9 @@ detect_arch() {
 
 install_deps() {
   if [[ "$PKG" == "unknown" ]]; then
-    warn "未检测到包管理器，将尝试仅使用静态下载方式（需要 curl、tar、jq）"
+    warn "未检测到包管理器，将尝试仅使用静态下载方式（需要 curl、tar、jq、openssl）"
   else
-    eval "$INSTALL curl tar jq"
+    eval "$INSTALL curl tar jq openssl"
   fi
 }
 
@@ -163,6 +75,12 @@ install_singbox() {
   ok "sing-box 安装完成：$($SB_BIN version | head -n 1 || true)"
 }
 
+validate_port() {
+  local p="$1"
+  [[ "$p" =~ ^[0-9]+$ ]] || return 1
+  (( p>=1 && p<=65535 ))
+}
+
 gen_password() {
   local method="$1"
   case "$method" in
@@ -170,6 +88,72 @@ gen_password() {
     2022-blake3-aes-128-gcm) openssl rand -base64 16 ;;
     *) echo "";;
   esac
+}
+
+read_with_default() {
+  local v
+  read -r -p "$1 [$2]: " v || true
+  echo "${v:-$2}"
+}
+
+choose_method_cli() {
+  echo "请选择 Shadowsocks 2022 方法:"
+  echo "  1) 2022-blake3-aes-256-gcm   (默认)"
+  echo "  2) 2022-blake3-chacha20-poly1305"
+  echo "  3) 2022-blake3-aes-128-gcm"
+  local n
+  read -r -p "输入序号 [1]: " n || true
+  case "${n:-1}" in
+    1) echo "2022-blake3-aes-256-gcm" ;;
+    2) echo "2022-blake3-chacha20-poly1305" ;;
+    3) echo "2022-blake3-aes-128-gcm" ;;
+    *) echo "2022-blake3-aes-256-gcm" ;;
+  esac
+}
+
+collect_inputs() {
+  echo "=== SS2022 配置 ==="
+  METHOD="${METHOD:-}"
+  if [[ -z "${METHOD:-}" ]]; then
+    METHOD="$(choose_method_cli)"
+  fi
+
+  PORT="${PORT:-}"
+  while [[ -z "${PORT:-}" ]]; do
+    PORT="$(read_with_default '设置端口(1-65535)' "$DEFAULT_PORT")"
+    if ! validate_port "$PORT"; then
+      echo "无效端口：$PORT"
+      PORT=""
+    fi
+  done
+
+  LISTEN_ADDR="${LISTEN_ADDR:-}"
+  LISTEN_ADDR="$(read_with_default '监听地址(:: / 0.0.0.0 / 127.0.0.1)' "$DEFAULT_LISTEN")"
+
+  if [[ -z "${PASSWORD:-}" ]]; then
+    read -r -p "是否手动输入 base64 密钥？(y/N): " a || true
+    if [[ "${a,,}" =~ ^y(es)?$ ]]; then
+      while true; do
+        read -r -p "请输入 base64 密钥: " PASSWORD || true
+        [[ -n "${PASSWORD// /}" ]] && break
+        echo "密钥不能为空"
+      done
+    else
+      PASSWORD="$(gen_password "$METHOD")"
+    fi
+  fi
+
+  echo "---------------------------"
+  echo "方法 : $METHOD"
+  echo "端口 : $PORT"
+  echo "监听 : $LISTEN_ADDR"
+  echo "密钥 : $PASSWORD (base64)"
+  echo "---------------------------"
+  read -r -p "确认开始安装？(Y/n): " okgo || true
+  if [[ "${okgo,,}" == "n" ]]; then
+    echo "已取消"
+    exit 0
+  fi
 }
 
 write_config() {
@@ -218,30 +202,28 @@ EOF
   systemctl status sing-box --no-pager -l || true
 }
 
-
 print_summary() {
   local ip
   ip="$(curl -fsSL https://api.ipify.org || echo "<你的服务器IP>")"
-
-  # 生成 Surge 配置行
   local surge_line="Proxy = ss, ${ip}, ${PORT}, encrypt-method=${METHOD}, password=${PASSWORD}, udp-relay=true"
   mkdir -p "$SB_DIR"
   echo "$surge_line" > "$SB_DIR/surge-ss2022.conf"
 
-  local info="服务器: ${ip}
-端口: ${PORT}
-方法: ${METHOD}
-密钥(base64): ${PASSWORD}
-
-ss://${METHOD}:${PASSWORD}@${ip}:${PORT}#ss2022-${ip}-${PORT}
-
-[Surge]
-${surge_line}
-(已保存到 $SB_DIR/surge-ss2022.conf)"
-  ui_msg "安装完成" "$info"
-  echo -e "$info"
+  echo
+  echo "=========== SS2022 节点信息（请妥善保存） ==========="
+  echo "服务器: ${ip}"
+  echo "端口:   ${PORT}"
+  echo "方法:   ${METHOD}"
+  echo "密钥:   ${PASSWORD} (base64)"
+  echo
+  echo "URI:"
+  echo "ss://${METHOD}:${PASSWORD}@${ip}:${PORT}#ss2022-${ip}-${PORT}"
+  echo
+  echo "[Surge]"
+  echo "${surge_line}"
+  echo "(已保存到 $SB_DIR/surge-ss2022.conf)"
+  echo "===================================================="
 }
-
 
 uninstall() {
   systemctl stop sing-box 2>/dev/null || true
@@ -254,62 +236,26 @@ uninstall() {
 }
 
 main_menu() {
-  local choice
-  choice="$(ui_menu "选择操作" "请选择你要执行的操作" \
-    install "安装/更新 sing-box (SS2022)" \
-    uninstall "卸载 sing-box 与配置" \
-    quit "退出")"
-  echo "${choice:-quit}"
-}
-
-collect_inputs() {
-  # method
-  METHOD="$(ui_menu "选择加密方法" "请选择 Shadowsocks 2022 方法" \
-    2022-blake3-aes-256-gcm "（默认）更通用，AES-256-GCM" \
-    2022-blake3-chacha20-poly1305 "移动端友好，ChaCha20-Poly1305" \
-    2022-blake3-aes-128-gcm "轻量 AES-128-GCM")"
-  [[ -z "${METHOD:-}" ]] && METHOD="$default_method"
-
-  # port
-  while true; do
-    PORT="$(ui_input "设置端口" "输入监听端口（1-65535）" "$default_port")"
-    if validate_port "$PORT"; then break; fi
-    ui_msg "端口无效" "请输入 1-65535 之间的数字端口"
-  done
-
-  # listen address
-  LISTEN_ADDR="$(ui_input "监听地址" "输入监听地址（默认 :: 同时监听 IPv4/IPv6；或 0.0.0.0 / 127.0.0.1）" "$default_listen")"
-
-  # key
-  if ui_yesno "密钥设置" "是否手动输入 base64 密钥？（选择“否”将自动生成合适长度）"; then
-    while true; do
-      PASSWORD="$(ui_input "输入密钥" "请输入 base64 编码的密钥（建议与方法匹配长度）" "")"
-      if [[ -n "${PASSWORD// /}" ]]; then break; fi
-      ui_msg "密钥为空" "密钥不能为空，或选择自动生成。"
-    done
-  else
-    PASSWORD="$(gen_password "$METHOD")"
-  fi
-
-  # confirm
-  local summary="方法: ${METHOD}\n端口: ${PORT}\n监听: ${LISTEN_ADDR}\n密钥(base64): ${PASSWORD}"
-  if ui_yesno "确认配置" "请确认以下设置：\n\n${summary}\n\n是否继续安装？"; then
-    return 0
-  else
-    ui_msg "已取消" "未进行任何更改。"
-    exit 0
-  fi
+  echo "====== 选择操作 ======"
+  echo "  1) 安装/更新 sing-box (SS2022)"
+  echo "  2) 卸载 sing-box 与配置"
+  echo "  3) 退出"
+  read -r -p "输入序号 [1]: " n || true
+  case "${n:-1}" in
+    1) ACTION="install" ;;
+    2) ACTION="uninstall" ;;
+    *) ACTION="quit" ;;
+  esac
 }
 
 main() {
   need_root
-  need_tty
   detect_pkg
   detect_arch
   install_deps
-  install_ui
 
-  case "$(main_menu)" in
+  main_menu
+  case "${ACTION:-install}" in
     install)
       collect_inputs
       fetch_latest_singbox
@@ -323,9 +269,18 @@ main() {
       uninstall
       ;;
     *)
-      ui_msg "退出" "再见 👋"
+      echo "已退出"
       ;;
   esac
 }
+
+if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
+  need_root; detect_pkg; detect_arch; install_deps
+  : "${PORT:?需要 PORT}"
+  : "${METHOD:?需要 METHOD}"
+  : "${LISTEN_ADDR:=::}"
+  if [[ -z "${PASSWORD:-}" ]]; then PASSWORD="$(gen_password "$METHOD")"; fi
+  fetch_latest_singbox; install_singbox; write_config; write_service; print_summary; ok "完成 ✅"; exit 0
+fi
 
 main "$@"
