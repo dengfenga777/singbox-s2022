@@ -11,7 +11,7 @@
 curl -fsSL "https://raw.githubusercontent.com/dengfenga777/singbox-s2022/main/singbox-ss2022-oneclick.sh" | sudo bash
 ```
 
-> 将 `USER/REPO` 替换为你的 GitHub 用户名与仓库名。
+。
 
 ## 使用
 ```bash
