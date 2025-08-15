@@ -18,5 +18,5 @@ bash <(curl -fsSL https://raw.githubusercontent.com/dengfenga777/singbox-s2022/m
 ss2022-traffic
 ```
 #!/bin/bash
-set -e
+
 
