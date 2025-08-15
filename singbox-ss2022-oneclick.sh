@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# singbox-ss2022-oneclick.sh (CLI interactive, fixed full version)
+# singbox-ss2022-oneclick.sh (CLI interactive, latest - no non-interactive guard)
 # 一键安装/更新 sing-box（仅 Shadowsocks 2022 入站），纯命令行交互（无弹窗）。
-# - 方法选择菜单仅把“选择结果”写到 stdout（菜单文字走 stderr），避免被错误捕获
-# - 生成 ss:// 与 Surge 配置片段（保存到 /etc/sing-box/surge-ss2022.conf）
-# - 支持 NONINTERACTIVE=1 环境变量无人值守模式
-# - 若检测到非交互执行（如 curl | bash），会提示改为下载后运行，或使用 NONINTERACTIVE 变量
+# 变更：移除“非交互环境（curl | bash）拒绝运行”的限制，允许直接管道运行交互；仍保留 NONINTERACTIVE=1 模式。
+# 附带：生成 ss:// 与 Surge 配置片段（保存到 /etc/sing-box/surge-ss2022.conf）。
 
 set -euo pipefail
 export LC_ALL=C
@@ -261,17 +259,6 @@ main() {
   detect_pkg
   detect_arch
   install_deps
-
-  # 如果是非交互（stdin 非 TTY）且未开启无人值守，就提示改为下载再运行
-  if [[ ! -t 0 && "${NONINTERACTIVE:-0}" != "1" ]]; then
-    warn "检测到非交互执行（例如 curl | bash）。请先下载到本地再运行：
-  curl -fsSLo /usr/local/bin/sb2022.sh \"https://raw.githubusercontent.com/dengfenga777/singbox-s2022/main/singbox-ss2022-oneclick.sh\"
-  chmod +x /usr/local/bin/sb2022.sh
-  sudo /usr/local/bin/sb2022.sh
-或使用无人值守：
-  sudo NONINTERACTIVE=1 PORT=30001 METHOD=2022-blake3-aes-256-gcm LISTEN_ADDR=:: bash /usr/local/bin/sb2022.sh"
-    exit 2
-  fi
 
   main_menu
   case "${ACTION:-install}" in
