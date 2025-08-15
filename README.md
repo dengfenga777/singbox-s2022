@@ -1,2 +1,4 @@
 # singbox-s2022
-这是 README 占位符，实际内容为 CLI 交互版 singbox 安装说明。
+一键安装/更新 sing-box（SS2022）CLI 交互版。
+使用方法：
+curl -fsSL "https://raw.githubusercontent.com/dengfenga777/singbox-s2022/main/singbox-ss2022-oneclick.sh" | sudo bash

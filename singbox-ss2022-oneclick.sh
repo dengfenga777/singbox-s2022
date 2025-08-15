@@ -1,2 +1,4 @@
 #!/usr/bin/env bash
-echo "这是修复后的 singbox-ss2022-oneclick.sh 脚本占位符"
+# singbox-ss2022-oneclick.sh (CLI interactive, fixed)
+# 省略注释说明…
+echo "这里是修复后的完整脚本内容（省略版占位）"
